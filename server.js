@@ -1,27 +1,29 @@
 // npm install request node-xmpp express nodester-api
 
 const config = require('./config.js').settings;
-var express = require('express');
-var app = express.createServer();
+var express = require('express'),
+    app = express.createServer();
+
 app.configure(function(){
-  app.set('view engine', 'jade');
-  app.set('views', __dirname + '/views');
-  app.use("/css", express.static(__dirname + '/css'));
+    app.set('view engine', 'jade');
+    app.set('views', __dirname + '/views');
+    app.use("/css", express.static(__dirname + '/css'));
 });
 
 app.get('/', function(req, res){
-  var data = {
-    title: config.status_message,
-    bot_email: config.client.jid
-  };
-  res.render('index.jade', data);
+    var data = {
+        title: config.status_message,
+        bot_email: config.client.jid
+    };
+    res.render('index.jade', data);
 });
 
-app.listen(3000);
+app.listen(3001);
 
 execute_bot();
 
 function execute_bot() {
+
     /**
      * A simple XMPP client bot aimed specifically at Google Talk
      * @author Simon Holywell
@@ -110,10 +112,12 @@ function execute_bot() {
      * @param {String} to_jid
      */
     function send_help_information(to_jid) {
-        var message_body = "Currently 'bounce', 'status' and 'twitter' are supported:\n";
+        var message_body = "Currently 'bounce', 'status', 'twitter', 'weather' and 'md5' are supported:\n";
         message_body += "b;example text\n";
         message_body += "t;some search string\n";
-        message_body += "s;A new status message\n\n";
+        message_body += "s;a new status message\n";
+        message_body += "w;city to see weather conditions\n";
+        message_body += "md5;string to md5fy\n\n";
         message_body += "See http://njsbot.simonholywell.com/ for more information.\n";
         send_message(to_jid, message_body);
     }
@@ -161,7 +165,13 @@ function execute_bot() {
      * @param {Function} callback (should return true on success)
      */
     function add_command(command, callback) {
-        commands[command] = callback;
+        if(typeof[command] == 'string') {
+            commands[command] = callback;
+        }else{
+            for (x in command) {
+                commands[command[x]] = callback;
+            }
+        }
     }
 
     /**
@@ -179,7 +189,7 @@ function execute_bot() {
      * Bounce any message the user sends to the bot back to them
      * @param {Object} request
      */
-    add_command('b', function(request) {
+    add_command(['b','bounce'], function(request) {
         send_message(request.stanza.attrs.from, request.stanza.getChildText('body'));
         return true;
     });
@@ -188,7 +198,7 @@ function execute_bot() {
      * Search twitter for the provided term and give back 5 tweets
      * @param {Object} request
      */
-    add_command('t', function(request) {
+    add_command(['t','twitter'], function(request) {
         var to_jid = request.stanza.attrs.from;
         send_message(to_jid, 'Searching twitter, please be patient...');
         var url = 'http://search.twitter.com/search.json?rpp=5&show_user=true&lang=en&q='
@@ -218,6 +228,45 @@ function execute_bot() {
         //set_status_message(request.argument);
         send_message(request.stanza.attrs.from, "Status message now set to " + request.argument);
         send_message(request.stanza.attrs.from, "This feature has been disabled on this public bot due to abuse. Sorry");
+        return true;
+    });
+
+    /**
+     * Send md5 hash to client
+     * @param {Object} request
+     */
+    add_command('md5', function(request) {
+        var crypto = require('crypto'),
+            string = request.argument.trim(),
+            hash = crypto.createHash('md5').update(string).digest("hex");
+
+        send_message(request.stanza.attrs.from, "MD5 of \"" + string + "\" is: " + hash);
+        return true;
+    });
+
+    /**
+     * Search yahoo! weather for the provided city and 
+     * give back the weather conditions
+     * @param {Object} request
+     */
+    add_command(['w','weather'], function(request) {
+        var search = request.argument.trim(),
+            url = 'http://query.yahooapis.com/v1/public/yql?q=select%20*%20from%20weather.bylocation%20where%20location%3D%22'
+                 + encodeURIComponent(search)+"%22%20and%20unit%3D%22c%22&diagnostics=true&format=json&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys";
+
+        send_message(request.stanza.attrs.from, 'Searching "'+search+'" on Yahoo Weather...');
+        request_helper(url, function(error, response, body){
+            body = JSON.parse(body);
+            var item = body.query.results.weather.rss.channel.item,
+                title = item.title,
+                temp = item.condition.temp,
+                text = item.condition.text,
+                message_body;
+
+            message_body = title + "\n" +
+                           temp + "ºC - " + text;
+            send_message(request.stanza.attrs.from, message_body);
+        });
         return true;
     });
 
